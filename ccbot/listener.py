@@ -84,11 +84,20 @@ class CCBotListener:
                 if src == self._bot_id:
                     continue
 
-                # for group messages, check if bot is @-mentioned
+                # parse quote/reply info
+                quote = msg.get("msg", {}).get("quote") or {}
+                quote_ref_id = quote.get("refID", "")
+                if quote:
+                    logging.debug(f"[ccbot] quote payload: {json.dumps(quote, ensure_ascii=False)}")
+                is_reply_to_bot = quote_ref_id.endswith(f":{self._bot_id}")
+                if quote:
+                    msg["_quote"] = quote
+
+                # for group messages, check if bot is @-mentioned or replied-to
                 dest = msg.get("dest", {})
                 if dest.get("type") == "GROUP":
                     at_persons = msg.get("atPersons") or msg.get("msg", {}).get("atPersons") or []
-                    mentioned = self._bot_id in at_persons
+                    mentioned = self._bot_id in at_persons or is_reply_to_bot
                     msg["_mentioned"] = mentioned
                     if not mentioned and not self._pass_unmentioned:
                         continue
