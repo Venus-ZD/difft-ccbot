@@ -1,6 +1,6 @@
 # difft-ccbot
 
-Python SDK for sending and receiving messages via the [Difft](https://difft.org) messaging platform. Bring your own bot credentials.
+Python SDK for sending and receiving messages via the [Difft / CC](https://difft.org) messaging platform. Bring your own bot credentials.
 
 ## Installation
 
@@ -109,7 +109,7 @@ python3 my_script.py \
 
 ## Getting credentials
 
-1. Register a bot app at the Difft Open Platform
+1. Register a bot app at the Difft Open Platform / Contact ccBot(10003)
 2. Note your **App ID** and **App Secret**
 3. Note your **Bot ID** (assigned when the bot is created)
 4. Whitelist your server's outbound IP in the Difft developer console
