@@ -1,12 +1,12 @@
-import time
+import uuid
 from typing import Union
 
-import requests
+from difft.client import DifftClient
+from difft.message import MessageRequestBuilder
 
-from .auth import Authenticator
 from . import config as _config
 
-API_URL = "https://openapi.difft.org/v1/messages"
+PROD_HOST = "https://openapi.difft.org"
 
 
 def _detect_type(target: str) -> str:
@@ -14,40 +14,8 @@ def _detect_type(target: str) -> str:
     return "USER" if target.startswith("+") else "GROUP"
 
 
-def _build_payload(bot_id: str, target: str, text: str, title: str = None) -> dict:
-    target_type = _detect_type(target)
-    dest = {
-        "wuid": [target] if target_type == "USER" else [],
-        "groupID": target if target_type == "GROUP" else "",
-        "type": target_type,
-    }
-    now_ms = int(time.time() * 1000)
-
-    if title:
-        return {
-            "version": 1,
-            "type": "CARD",
-            "src": bot_id,
-            "dest": dest,
-            "timestamp": now_ms,
-            "msg": {"body": "", "atPersons": []},
-            "mentions": [],
-            "card": {"appid": None, "title": title, "content": text},
-        }
-    else:
-        return {
-            "version": 1,
-            "type": "TEXT",
-            "src": bot_id,
-            "dest": dest,
-            "timestamp": now_ms,
-            "msg": {"body": text, "atPersons": []},
-            "mentions": [],
-        }
-
-
 class CCBot:
-    def __init__(self, appid: str = None, secret: str = None, bot_id: str = None):
+    def __init__(self, appid: str = None, secret: str = None, bot_id: str = None, host: str = PROD_HOST):
         """
         Initialize CCBot with credentials.
         If not provided, loads from env vars or ~/.ccbot/config.json.
@@ -65,17 +33,18 @@ class CCBot:
 
         self._appid = creds["appid"]
         self._bot_id = creds["bot_id"]
-        self._auth = Authenticator(appid=self._appid, key=creds["secret"].encode())
+        self._secret = creds["secret"]
+        self._host = host
+        self._client = DifftClient(self._appid, creds["secret"], host)
 
     def send(self, text: str, to: Union[str, list], title: str = None) -> None:
         """
         Send a message to one or more targets.
 
         Args:
-            text:  Message body.
+            text:  Message body (plain text, or markdown when title is set).
             to:    Target ID(s). String or list. Starts with '+' → USER, else → GROUP.
-                   Can mix group IDs and user IDs in the same list.
-            title: Optional. If set, sends as CARD type with this title.
+            title: Optional. If set, sends as CARD with title as H3 heading above text.
 
         Raises:
             RuntimeError: If any send fails.
@@ -84,16 +53,29 @@ class CCBot:
         errors = []
 
         for target in targets:
-            payload = _build_payload(self._bot_id, target, text, title)
+            builder = MessageRequestBuilder().sender(self._bot_id).timestamp_now()
+
+            if _detect_type(target) == "USER":
+                builder = builder.to_user([target])
+            else:
+                builder = builder.to_group(target)
+
             if title:
-                payload["card"]["appid"] = self._appid
+                content = f"### {title}\n\n{text}"
+                builder = builder.card(self._appid, uuid.uuid4().hex[:16], content)
+            else:
+                builder = builder.message(text)
+
             try:
-                r = requests.post(API_URL, auth=self._auth, json=payload, timeout=10)
-                data = r.json()
-                if data.get("status") != 0:
-                    errors.append(f"{target}: {data.get('reason', r.text)}")
+                result = self._client.send_message(builder.build(), raw_response=True)
+                if result.get("status") != 0:
+                    errors.append(f"{target}: {result.get('reason', result)}")
             except Exception as e:
                 errors.append(f"{target}: {e}")
 
         if errors:
             raise RuntimeError("ccbot send failed:\n" + "\n".join(errors))
+
+    def upload_pic(self, path: str) -> str:
+        """Upload a local image and return its URL for embedding in card markdown."""
+        return self._client.upload_pic(path)
