@@ -1,22 +1,36 @@
-# ccbot
+# venus-claude-cc-bot
 
-Python SDK for sending messages via the [Difft](https://difft.org) messaging platform. Bring your own bot credentials.
+A Difft messaging bot that gives Venus Protocol team members access to Claude Code through the Difft app — no Terminal required.
 
-## Installation
+## What it does
 
-```bash
-pip install ccbot
+Team members send messages to the bot via Difft (DM or group @ mention). The bot forwards the request to Claude Code and replies with the response. Everyone on the team gets Claude Code access through the app they already use.
+
+```
+User on Difft → @VenusAlertBot "help me write a SQL query"
+                     ↓
+              Claude Code processes
+                     ↓
+Bot replies in Difft with the answer
 ```
 
-## Setup
+## Package: `ccbot`
 
-Run the interactive setup once to save your credentials:
+The `ccbot` Python package handles all Difft communication — sending, receiving, and image uploads.
+
+### Installation
+
+```bash
+pip install -e /path/to/ccbot
+```
+
+### Setup
 
 ```bash
 ccbot setup
 ```
 
-This writes to `~/.ccbot/config.json`. Alternatively, use env vars:
+Saves credentials to `~/.ccbot/config.json`. Or use env vars:
 
 ```bash
 export CCBOT_APPID=your_app_id
@@ -24,69 +38,73 @@ export CCBOT_SECRET=your_app_secret
 export CCBOT_BOT_ID=your_bot_id
 ```
 
-## Usage
-
-### In a script
+### Sending messages
 
 ```python
-from ccbot import send
+import ccbot
 
-# Send text to a group
-send("job done", to="4c67045cb9d04cd4a48fe8ae9cde7b85")
+# Text
+ccbot.send("job done", to="group_id")
+ccbot.send("job done", to="+user_id")
 
-# Send DM to a user
-send("job done", to="+74189820376")
+# Card (supports markdown)
+ccbot.send("Venus TVL dropped 10%", to="group_id", title="Alert")
 
-# Mix groups and users in one call
-to_list = ["4c67045cb9d04cd4a48fe8ae9cde7b85", "+74189820376"]
-send("job done", to=to_list)
+# Multiple targets
+ccbot.send("done", to=["group_id", "+user_id"])
 
-# Send as card (with title)
-send("Venus TVL dropped 10%", to=to_list, title="Alert")
+# Upload image and embed in card
+url = ccbot.upload_pic("./chart.png")
+ccbot.send(f"![chart]({url})", to="group_id", title="Weekly Report")
 ```
 
-Target type is auto-detected: IDs starting with `+` are treated as users (DM), others as groups.
-
-### Explicit bot instance
+### Receiving messages
 
 ```python
-from ccbot import CCBot
+import ccbot
 
-bot = CCBot(appid="...", secret="...", bot_id="...")
-bot.send("hello", to="group_id")
+def handler(msg):
+    src = msg["src"]                          # sender ID
+    body = msg["msg"]["body"]                 # message text
+    dest = msg["dest"]
+    group_id = dest.get("groupID") if dest["type"] == "GROUP" else None
+    reply_to = group_id if group_id else src
+
+    ccbot.send(f"Got it: {body}", to=reply_to)
+
+ccbot.listen(handler)  # blocking, reconnects automatically
 ```
+
+**Inbound filter rules:**
+- Group messages: only triggers when bot is @-mentioned
+- DM: always triggers
+- Skips bot's own messages, empty bodies, unsupported attachment types
 
 ### CLI
 
 ```bash
-# Send text
 ccbot "job done" --to GROUP_ID
-
-# Send to multiple targets
-ccbot "job done" --to GROUP_ID +USER_ID
-
-# Send as card
-ccbot "TVL dropped 10%" --to GROUP_ID --title "Alert"
-
-# Interactive setup
+ccbot "TVL dropped" --to GROUP_ID --title "Alert"
+ccbot listen          # print incoming messages to stdout
 ccbot setup
 ```
 
-### Cron pattern
+## Running the Claude Code service
+
+`cc_bot_service.py` is the main service script. It listens for Difft messages and routes them to Claude Code:
 
 ```bash
-python3 my_script.py \
-  && ccbot "my_script: success" --to GROUP_ID \
-  || ccbot "my_script: FAILED" --to GROUP_ID --title "ERROR"
+python3 scripts/cc_bot_service.py
 ```
 
-## How to get your credentials
+For production, run as a systemd service (see Step 4 in project notes).
 
-1. Register a bot app at [Difft Open Platform](https://openapi.difft.org)
-2. Note your **App ID** and **App Secret**
-3. Note your **Bot ID** (assigned when the bot is created)
-4. Whitelist your server's outbound IP in the Difft developer console
-5. Add your bot to the target group
+## Credentials
+
+- **Bot ID:** `+29577` (VenusAlertBot)
+- **App ID:** `779f22315993380f8bf8`
+- **Server IP:** `18.171.3.108` (AWS EU West 2, whitelisted in Difft)
+- **WebSocket:** must be enabled in Difft admin console for the App ID
 
 ## License
 
